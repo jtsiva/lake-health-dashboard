@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Water Quality Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .last-updated {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .locations-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 30px;
+        }
+
+        .location-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .location-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .location-title {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: white;
+            margin-bottom: 20px;
+            text-align: center;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .metric-card {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+            transition: transform 0.2s ease;
+        }
+
+        .metric-card:hover {
+            transform: scale(1.05);
+        }
+
+        .metric-label {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .metric-value {
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .trend-arrow {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        .trend-up {
+            color: #2196F3;
+        }
+
+        .trend-down {
+            color: #FF9800;
+        }
+
+        .loading {
+            text-align: center;
+            color: white;
+            font-size: 1.2rem;
+            padding: 50px;
+        }
+
+        .error {
+            background: rgba(244, 67, 54, 0.9);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌊 Water Quality Dashboard</h1>
+            <div class="last-updated" id="lastUpdated">Loading data...</div>
+        </div>
+
+        <div id="error-message"></div>
+
+        <div id="dashboard-content">
+            <div class="loading">Loading data...</div>
+        </div>
+    </div>
+
+    <script>
+        function parseCSV(csv) {
+            const lines = csv.split('\n').filter(line => line.trim());
+            if (lines.length < 2) return [];
+            
+            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            const data = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i];
+                const values = [];
+                let current = '';
+                let inQuotes = false;
+                
+                for (let j = 0; j < line.length; j++) {
+                    const char = line[j];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        values.push(current.trim().replace(/^"|"$/g, ''));
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                values.push(current.trim().replace(/^"|"$/g, ''));
+                
+                const row = {};
+                headers.forEach((header, index) => {
+                    row[header] = values[index] || '';
+                });
+                data.push(row);
+            }
+            
+            return data;
+        }
+
+        function getTrend(current, previous) {
+            if (previous === undefined || previous === '' || current === previous) return '';
+            const curr = parseFloat(current);
+            const prev = parseFloat(previous);
+            if (isNaN(curr) || isNaN(prev)) return '';
+            return curr > prev ? '▲' : '▼';
+        }
+
+        function getTrendClass(current, previous) {
+            if (previous === undefined || previous === '' || current === previous) return '';
+            const curr = parseFloat(current);
+            const prev = parseFloat(previous);
+            if (isNaN(curr) || isNaN(prev)) return '';
+            return curr > prev ? 'trend-up' : 'trend-down';
+        }
+
+        function renderDashboard(data) {
+            if (data.length === 0) {
+                document.getElementById('dashboard-content').innerHTML = '<div class="loading">No data available</div>';
+                return;
+            }
+
+            // Sort by date to get latest
+            const sortedData = data.sort((a, b) => {
+                const dateA = new Date(a.Date);
+                const dateB = new Date(b.Date);
+                return dateB - dateA;
+            });
+
+            // Get unique dates (latest and previous)
+            const uniqueDates = [...new Set(sortedData.map(d => d.Date))];
+            const latestDate = uniqueDates[0];
+            const previousDate = uniqueDates[1];
+
+            // Get latest and previous readings for each location
+            const latestReadings = sortedData.filter(d => d.Date === latestDate);
+            const previousReadings = sortedData.filter(d => d.Date === previousDate);
+
+            document.getElementById('lastUpdated').textContent = 
+                `Last updated: ${latestDate}`;
+
+            const locations = ['North', 'Middle', 'South'];
+            const metrics = [
+                { key: 'pH', label: 'pH', decimals: 2 },
+                { key: 'ORP', label: 'ORP', decimals: 1 },
+                { key: '%DO', label: '%DO', decimals: 1 },
+                { key: 'Dissolved Oxygen (ppm)', label: 'DO (ppm)', decimals: 2 },
+                { key: 'Water Temp (F)', label: 'Water Temp (°F)', decimals: 1 },
+                { key: 'Air Temp (F)', label: 'Air Temp (°F)', decimals: 0 }
+            ];
+
+            let dashboardHTML = '<div class="locations-grid">';
+
+            locations.forEach(location => {
+                const latest = latestReadings.find(r => r.Location.trim() === location);
+                const previous = previousReadings.find(r => r.Location.trim() === location);
+
+                if (!latest) return;
+
+                dashboardHTML += `
+                    <div class="location-card">
+                        <div class="location-title">${location} Station</div>
+                        <div class="metrics-grid">
+                `;
+
+                metrics.forEach(metric => {
+                    const currentValue = latest[metric.key];
+                    const previousValue = previous ? previous[metric.key] : undefined;
+                    
+                    const trend = getTrend(currentValue, previousValue);
+                    const trendClass = getTrendClass(currentValue, previousValue);
+
+                    const displayValue = parseFloat(currentValue) || 0;
+
+                    dashboardHTML += `
+                        <div class="metric-card">
+                            <div class="metric-label">${metric.label}</div>
+                            <div class="metric-value">
+                                ${displayValue.toFixed(metric.decimals)}
+                                <span class="trend-arrow ${trendClass}">${trend}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                dashboardHTML += `
+                        </div>
+                    </div>
+                `;
+            });
+
+            dashboardHTML += '</div>';
+
+            document.getElementById('dashboard-content').innerHTML = dashboardHTML;
+        }
+
+        async function loadData() {
+            try {
+                clearError();
+                
+                const response = await fetch('data.csv');
+                if (!response.ok) {
+                    throw new Error(`Failed to load data.csv: ${response.status}`);
+                }
+                
+                const csvText = await response.text();
+                const data = parseCSV(csvText);
+                
+                if (data.length === 0) {
+                    throw new Error('No data found in CSV');
+                }
+                
+                renderDashboard(data);
+            } catch (error) {
+                showError(`Failed to load data: ${error.message}`);
+                document.getElementById('dashboard-content').innerHTML = '<div class="loading">Failed to load data</div>';
+            }
+        }
+
+        function showError(message) {
+            document.getElementById('error-message').innerHTML = `<div class="error">${message}</div>`;
+        }
+
+        function clearError() {
+            document.getElementById('error-message').innerHTML = '';
+        }
+
+        // Load data on page load
+        loadData();
+    </script>
+</body>
+</html>
